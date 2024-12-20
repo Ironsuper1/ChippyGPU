@@ -35,25 +35,29 @@ module processor;
 
 
 endmodule
-;
 
-module progCount (
-    input  clk,
-    input  rst,
-    input  en,
-    output pc
+
+module program_counter (
+    input wire clk,
+    input wire reset,
+    input wire pc_src,
+    input wire [31:0] pc_in,   // Input to PC (for branch/jump addresses)
+    output reg [31:0] pc_out
 );
-    parameter width = `WIDTH;
-    reg [width-1:0] Q;
-    always @(posedge rst, posedge clk) begin
-        if (rst) begin
-            Q <= 0;
-        end else if (en) begin
-            Q <= Q + 1;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            pc_out <= 32'b0;
+        end else begin
+            if (pc_src) begin
+                pc_out <= pc_in;  // Update PC to branch/jump address
+            end else begin
+                pc_out <= pc_out + 4;
+            end
         end
     end
+
 endmodule
-;
 
 
 module insMem (
@@ -76,87 +80,100 @@ module insMem (
         ins = imem[addr[11:2]];
     end
 endmodule
-;
 
-module registers (
-    input  clk,
-    input  rw,   // Reg Write
-    input  rst,
-    input  rr1,
-    input  rr2,
-    input  wr,
-    input  wd,
-    output rd1,
-    output rd2
+
+module register_file (
+    input wire clk,
+    input wire rst,
+    input wire [4:0] rs1_addr,    // Address of source register 1
+    input wire [4:0] rs2_addr,    // Address of source register 2
+    input wire [4:0] rd_addr,     // Address of destination register
+    input wire [31:0] rd_data,    // Data to write to destination register
+    input wire write_enable,      // Write enable signal
+    output wire [31:0] rs1_data,  // Data from source register 1
+    output wire [31:0] rs2_data   // Data from source register 2
 );
-    parameter width = `WIDTH;
-    parameter rwidth = 6;
-    reg [width-1:0] cpu_reg[width-1:0];
-    integer rr1i = rr1;  // Read Reg 1
-    integer rr2i = rr2;  // Read Reg 2
-    integer wri = wr;  //
-    integer wdi = wd;
 
-    always @(posedge rst, posedge clk) begin
+    // 32 registers, 32bits
+    reg [31:0] registers [31:0];
+
+    // Asynchronous read
+    assign rs1_data = (rs1_addr == 0) ? 32'b0 : registers[rs1_addr]; // x0 is always 0
+    assign rs2_data = (rs2_addr == 0) ? 32'b0 : registers[rs2_addr]; // x0 is always 0
+
+    // Synchronous write
+    always @(posedge clk or posedge rst) begin
         if (rst) begin
-            //rst
-            rd1 <= 32'b0;
-            rd2 <= 32'b0;
-        end else if (rw) begin
-            // rw
-        end else begin
-            rd1 <= cpu_reg[rr1i];
-            rd2 <= cpu_reg[rr2i];
+            // Reset all registers to 0
+            integer i;
+            for (i = 0; i < 32; i = i + 1) begin
+                registers[i] <= 32'b0;
+            end
+        end else if (write_enable && rd_addr != 0) begin
+            registers[rd_addr] <= rd_data;
         end
     end
 
 endmodule
-;
+
+
 
 // Control, 0 -> Add
 // Control, 1 -> Sub
-// Control, 2 -> Mul
-// Control, 3 -> Div
+// Control, 2 -> SLL
+// Control, 3 -> SLT
+// Control, 4 -> SLTU
+// Control, 5 -> XOR
+// Control, 6 -> SRL
+// Control, 7 -> SRA
+// Control, 8 -> OR
+// Control, 9 -> AND
+// Control, 10 -> ADDI
+// Control, 11 -> SLTI
+// Control, 12 -> SLTIU
+// Control, 13 -> XORI
+// Control, 14 -> ORI
+// Control, 15 -> ANDI
+// Control, 16 -> SLLI
+// Control, 17 -> SRLI
+// Control, 18 -> SRAI
 module alu (
-    input  clk,
-    input  rst,
-    input  first,
-    input  second,
-    input  control[1:0],
-    output val,
+    input wire [31:0] a,
+    input wire [31:0] b,
+    input wire [31:0] imm,
+    input wire [4:0] control,
+    output reg [31:0] val,
     output zero
 );
     reg [width-1:0] temp;
 
-    always @(posedge rst, posedge clk) begin
-        if (rst) begin
-            zero <= "0";
-        end else if (control == 0) begin  // Add
-            temp <= first + second;
-            if (temp < first) begin
-                zero = 1'b1;
-            end
-            val <= temp;
-        end else if (control == 1) begin  // Sub
-            temp <= first - second;
-            if (temp < first) begin
-                zero = 1'b1;
-            end
-        end else if (control == 2) begin  // Mul
-            temp <= first * second;
-            if (temp < first) begin
-                zero = 1'b1;
-            end
-        end else if (control == 3) begin  // Div
-            temp <= first / second;
-            if (temp < first) begin
-                zero = 1'b1;
-            end
-        end
+    assign zero = (val == 32'b0);
+
+    always(*) begin
+      case (control)
+        0: val = a+b;
+        1: val = a-b;
+        2: val = a<<b;
+        3: val = (a<b) ? 1 : 0;
+        4: val = (unsigned(a)<unsigned(b)) ? 1 : 0;
+        5: val = a^b;
+        6: val = a>>b;
+        7: val = a>>>b;
+        8: val = a|b;
+        9: val = a&b;
+        10: val = a+imm;
+        11: val = (a<imm) ? 1 : 0;
+        12: val = (unsigned(a)<unsigned(imm)) ? 1 : 0;
+        13: val = a^imm;
+        14: val = a|imm;
+        15: val = a&imm;
+        16: val = a<<imm;
+        17: val = a>>imm;
+        18: val = a>>>imm;
     end
 
 endmodule
-;
+
 
 module dataMem (
     input wire clk,
@@ -182,4 +199,4 @@ module dataMem (
     end 
 
 endmodule
-;
+
