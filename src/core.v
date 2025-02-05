@@ -2,58 +2,63 @@
 `define CACHE_SIZE 1024 // 4Byte Width Data -> 128Byte Cache
 module processor;
 
-    wire clk, rst, en;
+    wire clk, rst, en, brn_en;
     reg [31:0] instruction = "11";
     reg [15:0] value_in = "12";
     reg [4:0] result;
     reg mux_result;
     reg m2_Res;
-
+    reg ins_result;
+    wire [31:0] pc_in, pc_out, pc_brn;
     // program counter
-    progCount p1 (
-        clk,
-        rst,
-        en,
-        m2_Res
-    );
-    assign result = instruction[5:1] & value_in[5:1];
-    mux one (
-        clk,
-        rst,
-        result[0],
-        en,
-        mux_result
-    );
-    // Instruction Memory
 
+    pc_in <= (brn_en) ? pc_brn : (pc_in + 4);
+
+    program_counter p1 (
+        .clk(clk),
+        .rst(rst),
+        .pc_in(pc_in),
+        .pc_out(pc_out)
+    );
+    
+    // Instruction Memory
+    insMem ins (
+        mux_result,
+        ins_result
+    );
     // Decode + Registers
 
-    // Execute + ALU
+    register_file rfile (
+        clk,
+        rst,
 
+
+    );
+    // Execute + ALU
+    alu exe (
+
+    );
     // Memory Write/Data Memory
 
+    dataMem d (
 
+    );
 
 endmodule
 
 
 module program_counter (
     input wire clk,
-    input wire reset,
-    input wire pc_src,
-    input wire [31:0] pc_in,   // Input to PC (for branch/jump addresses)
+    input wire rst,
+    input wire [31:0] pc_in,
     output reg [31:0] pc_out
 );
-
+    
     always @(posedge clk or posedge reset) begin
-        if (reset) begin
+        if (rst) begin
             pc_out <= 32'b0;
         end else begin
-            if (pc_src) begin
-                pc_out <= pc_in;  // Update PC to branch/jump address
-            end else begin
-                pc_out <= pc_out + 4;
-            end
+            pc_out <= pc_in;
         end
     end
 
@@ -61,7 +66,7 @@ endmodule
 
 
 module insMem (
-    input [31:0]  addr,
+    input [31:0] addr,
     output [31:0] ins
 );
     parameter width = `WIDTH;
@@ -81,6 +86,16 @@ module insMem (
     end
 endmodule
 
+module op_parser (
+    input  [31:0] ins,
+    output [7:0]  opcode,
+    output [4:0] rs1,
+    output [4:0] rs2,
+    output [4:0] rd
+);
+
+
+endmodule
 
 module register_file (
     input wire clk,
@@ -152,7 +167,7 @@ module alu (
     always(*) begin
       case (control)
         0: val = a+b;
-        1: val = a-b;
+
         2: val = a<<b;
         3: val = (a<b) ? 1 : 0;
         4: val = (unsigned(a)<unsigned(b)) ? 1 : 0;
