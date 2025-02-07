@@ -1,5 +1,7 @@
 `define WIDTH 32
-`define CACHE_SIZE 1024 // 4Byte Width Data -> 128Byte Cache
+`define CACHE_SIZE 1024
+
+
 module processor;
 
     wire clk, rst, en, brn_en;
@@ -10,27 +12,40 @@ module processor;
     reg m2_Res;
     reg ins_result;
     wire [31:0] pc_in, pc_out, pc_brn;
+    wire [7:0] opcode;
+    wire[4:0] rs1, rs2, rd;
     // program counter
 
-    pc_in <= (brn_en) ? pc_brn : (pc_in + 4);
-
+    assign pc_in = (brn_en) ? pc_brn : (pc_in + 4);
     program_counter p1 (
         .clk(clk),
         .rst(rst),
         .pc_in(pc_in),
         .pc_out(pc_out)
     );
-    
+
+    assign pc_in = pc_out;
+
     // Instruction Memory
     insMem ins (
-        mux_result,
-        ins_result
+        .addr(mux_result),
+        .ins(ins_result)
     );
-    // Decode + Registers
 
-    register_file rfile (
-        clk,
-        rst,
+    op_parser p (
+        .ins(ins_result),
+        .opcode(opcode),
+        .rs1(rs1),
+        .rs2(rs2),
+        .rd(rd)
+    );
+    // Decode
+    register_file rf (
+        .clk(clk),
+        .rst(rst),
+        .rs1_addr(rs1),
+        .rs2_addr(rs2),
+        .rd_addr(rd)
 
 
     );
@@ -53,7 +68,7 @@ module program_counter (
     input wire [31:0] pc_in,
     output reg [31:0] pc_out
 );
-    
+
     always @(posedge clk or posedge reset) begin
         if (rst) begin
             pc_out <= 32'b0;
@@ -69,9 +84,9 @@ module insMem (
     input [31:0] addr,
     output [31:0] ins
 );
-    parameter width = `WIDTH;
-    parameter cache_size = `CACHE_SIZE;
-    reg [width-1:0] imem  [0:cache_size-1]; // 1024 entries
+    parameter int WIDTH = `WIDTH;
+    parameter int CACHE = `CACHE_SIZE;
+    reg [WIDTH-1:0] imem  [CACHE]; // 1024 entries
     initial begin
         imem[0]   = 32'h00000093; // ADDI x1, x0, 0
         imem[1]   = 32'h00100113; // ADDI x2, x0, 1
@@ -94,6 +109,10 @@ module op_parser (
     output [4:0] rd
 );
 
+    assign opcode = ins[7:0];
+    assign rs1 = ins[19:15];
+    assign rs2 = ins[24:20];
+    assign rd = ins[11:7];
 
 endmodule
 
@@ -110,7 +129,7 @@ module register_file (
 );
 
     // 32 registers, 32bits
-    reg [31:0] registers [31:0];
+    reg [31:0] registers [32];
 
     // Asynchronous read
     assign rs1_data = (rs1_addr == 0) ? 32'b0 : registers[rs1_addr]; // x0 is always 0
