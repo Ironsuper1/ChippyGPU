@@ -14,8 +14,8 @@ module processor;
     wire [31:0] pc_in, pc_out, pc_brn, imm_out;
     wire [7:0] opcode;
     wire[4:0] rs1, rs2, rd;
-    // program counter
 
+    // Fetch
     assign pc_in = (brn_en) ? pc_brn : (pc_in + 4);
     program_counter p1 (
         .clk(clk),
@@ -31,7 +31,7 @@ module processor;
         .addr(mux_result),
         .ins(ins_result)
     );
-
+    // Decode
     op_parser op_p (
         .ins(ins_result),
         .opcode(opcode),
@@ -44,7 +44,7 @@ module processor;
         .ins(ins_result),
         .imm_out(imm_out)
     );
-    // Decode
+
     register_file rf (
         .clk(clk),
         .rst(rst),
@@ -56,12 +56,13 @@ module processor;
     alu exe (
 
     );
+
     // Memory Write/Data Memory
 
     dataMem d (
 
     );
-
+    // Writeback
 endmodule
 
 
