@@ -11,7 +11,7 @@ module processor;
     reg mux_result;
     reg m2_Res;
     reg ins_result;
-    wire [31:0] pc_in, pc_out, pc_brn;
+    wire [31:0] pc_in, pc_out, pc_brn, imm_out;
     wire [7:0] opcode;
     wire[4:0] rs1, rs2, rd;
     // program counter
@@ -32,12 +32,17 @@ module processor;
         .ins(ins_result)
     );
 
-    op_parser p (
+    op_parser op_p (
         .ins(ins_result),
         .opcode(opcode),
         .rs1(rs1),
         .rs2(rs2),
         .rd(rd)
+    );
+
+    imm_parser imm_p (
+        .ins(ins_result),
+        .imm_out(imm_out)
     );
     // Decode
     register_file rf (
@@ -46,8 +51,6 @@ module processor;
         .rs1_addr(rs1),
         .rs2_addr(rs2),
         .rd_addr(rd)
-
-
     );
     // Execute + ALU
     alu exe (
@@ -88,12 +91,12 @@ module insMem (
     parameter int CACHE = `CACHE_SIZE;
     reg [WIDTH-1:0] imem  [CACHE]; // 1024 entries
     initial begin
-        imem[0]   = 32'h00000093; // ADDI x1, x0, 0
-        imem[1]   = 32'h00100113; // ADDI x2, x0, 1
-        imem[2]   = 32'h00300193; // ADDI x3, x0, 3
-        imem[3]   = 32'h00420293; // ADDI x5, x1, 4
-        imem[4]   = 32'h00C30333; // ADD x6, x6, x6
-        imem[5]   = 32'hFF5FF06F; // JAL x0, -5
+        imem[0] = 32'h00000093; // ADDI x1, x0, 0
+        imem[1] = 32'h00100113; // ADDI x2, x0, 1
+        imem[2] = 32'h00300193; // ADDI x3, x0, 3
+        imem[3] = 32'h00420293; // ADDI x5, x1, 4
+        imem[4] = 32'h00C30333; // ADD x6, x6, x6
+        imem[5] = 32'hFF5FF06F; // JAL x0, -5
     end
 
     always @(addr) begin
@@ -103,7 +106,7 @@ endmodule
 
 module op_parser (
     input  [31:0] ins,
-    output [7:0]  opcode,
+    output [7:0] opcode,
     output [4:0] rs1,
     output [4:0] rs2,
     output [4:0] rd
@@ -113,6 +116,28 @@ module op_parser (
     assign rs1 = ins[19:15];
     assign rs2 = ins[24:20];
     assign rd = ins[11:7];
+
+endmodule
+
+module immediate_parser (
+    input [31:0] ins,
+    output [31:0] imm_out
+);
+    wire [7:0] op = ins[7:0];
+    // Extract and sign-extend immediates using assign
+    wire [31:0] imm_i = {{20{ins[31]}}, ins[31:20]}; // I-type
+    wire [31:0] imm_s = {{20{ins[31]}}, ins[31:25], ins[11:7]}; // S-type
+    wire [31:0] imm_b = {{19{ins[31]}}, ins[31], ins[7], ins[30:25], ins[11:8], 1'b0}; // B-type
+    wire [31:0] imm_u = {ins[31:12], 12'b0}; // U-type (zero-extended)
+    wire [31:0] imm_j = {{11{ins[31]}}, ins[31], ins[19:12], ins[20], ins[30:21], 1'b0}; // J-type
+
+    // Assign output based on instruction format
+    assign imm_out =  (op == 7'b0010011 || op == 7'b0000011 || op == 7'b1100111) ? imm_i :
+                      (op == 7'b0100011) ? imm_s :
+                      (op == 7'b1100011) ? imm_b :
+                      (op == 7'b0110111 || op == 7'b0010111) ? imm_u :
+                      (op == 7'b1101111) ? imm_j :
+                      32'b0; // Default case: return 0 if format is unknown
 
 endmodule
 
