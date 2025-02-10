@@ -4,16 +4,16 @@
 
 module processor;
 
-    wire clk, rst, en, brn_en;
+    wire clk, rst, en, brn_en, write_enable, alu_imm, mem_read, mem_write, write_back;
     reg [31:0] instruction = "11";
     reg [15:0] value_in = "12";
     reg [4:0] result;
     reg mux_result;
     reg m2_Res;
     reg ins_result;
-    wire [31:0] pc_in, pc_out, pc_brn, imm_out;
+    wire [31:0] pc_in, pc_out, pc_brn, imm_out, rs1_data, rs2_data, rd_data;
     wire [7:0] opcode;
-    wire[4:0] rs1, rs2, rd;
+    wire[4:0] rs1, rs2, rd, control;
 
     // Fetch
     assign pc_in = (brn_en) ? pc_brn : (pc_in + 4);
@@ -50,7 +50,22 @@ module processor;
         .rst(rst),
         .rs1_addr(rs1),
         .rs2_addr(rs2),
-        .rd_addr(rd)
+        .rd_addr(rd),
+        .rs1_data(rs1_data),
+        .rs2_data(rs2_data),
+        .rd_data(rd_data),
+        .write_enable(write_enable)
+    );
+
+    controller alu_ctrl (
+        .opcode(opcode),
+        .funct3(opcode[14:12]),
+        .funct7(opcode[31:25]),
+        .control(control),
+        .mem_write(mem_write),
+        .mem_read(mem_read),
+        .write_back(write_back),
+        .alu_imm(alu_imm),
     );
     // Execute + ALU
     alu exe (
@@ -142,6 +157,88 @@ module immediate_parser (
 
 endmodule
 
+// alu_imm = 1 when using immediate instead of second register
+module controller (
+    input wire [7:0] opcode,
+    input wire [2:0] funct3,
+    input wire [6:0] funct7,
+    output wire write_back,
+    output wire mem_write,
+    output wire mem_read,
+    output wire alu_imm,
+    output wire [4:0] control
+);
+    assign write_back = (opcode == 7'b0110011 || opcode == 0010011 ||
+                        opcode == 7'b0000011 || opcode == 7'b1101111 ||
+                        opcode == 7'b1100111 || opcode == 7'b0110111 ||
+                        opcode == 7'b0010111) ? 1 : 0;
+
+    assign mem_write = (opcode == 7'b0100011) ? 1 : 0;
+
+    assign mem_read = (opcode == 7'b0000011) ? 1 : 0;
+
+    assign alu_imm = (opcode == 7'b0010011 || opcode == 7'b0000011 ||
+                      opcode == 7'b1100111 || opcode == 7'b0100011 ||
+                      opcode == 7'b1100011 || opcode == 7'b0110111 ||
+                      opcode == 7'b0010111 || opcode == 7'b1101111) ? 1 : 0;
+
+    always @(*) begin
+        case (opcode)
+            7'b0110011: begin  // R-type instructions (funct3 and funct7)
+                case (funct3)
+                    3'b000: begin  // ADD / SUB
+                        if (funct7 == 7'b0100000)   // SUB
+                            control = 5'd1;
+                        else                          // ADD
+                            control = 5'd0;
+                    end
+                    3'b001: control = 5'd2;      // SLL
+                    3'b010: control = 5'd3;      // SLT
+                    3'b011: control = 5'd4;      // SLTU
+                    3'b100: control = 5'd5;      // XOR
+                    3'b101: begin  // SRL / SRA
+                        if (funct7 == 7'b0100000)  // SRA
+                            control = 5'd7;
+                        else                         // SRL
+                            control = 5'd6;
+                    end
+                    3'b110: control = 5'd8;      // OR
+                    3'b111: control = 5'd9;      // AND
+                    default: control = 5'd0;     // Default case (NOP)
+                endcase
+            end
+            7'b0010011: begin  // I-type instructions (funct3)
+                case (funct3)
+                    3'b000: control = 5'd0;      // ADDI
+                    3'b001: control = 5'd2;      // SLLI
+                    3'b010: control = 5'd3;      // SLTI
+                    3'b011: control = 5'd4;      // SLTIU
+                    3'b100: control = 5'd5;      // XORI
+                    3'b101: control = 5'd6;      // SRLI
+                    3'b110: control = 5'd8;      // ORI
+                    3'b111: control = 5'd9;      // ANDI
+                    default: control = 5'd0;     // Default case (NOP)
+                endcase
+            end
+            7'b0000011: begin
+                control = 5'd0;
+            end
+            7'b0100011: begin
+                control = 5'd0;
+            end
+            default: control = 5'd0;  // Default for other opcodes (NOP)
+        endcase
+      end
+endmodule
+
+module alu_cmd (
+    input wire [4:0] op,
+    input wire [3:0] funct,
+    input wire [4:0] alu_ctrl
+);
+
+endmodule
+
 module register_file (
     input wire clk,
     input wire rst,
@@ -198,39 +295,34 @@ endmodule
 // Control, 17 -> SRLI
 // Control, 18 -> SRAI
 module alu (
-    input wire [31:0] a,
-    input wire [31:0] b,
-    input wire [31:0] imm,
-    input wire [4:0] control,
-    output reg [31:0] val,
-    output zero
+    input  [31:0] a,      // First operand (rs1)
+    input  [31:0] b,      // Second operand (rs2)
+    input  [31:0] imm,    // Immediate value
+    input  [4:0] control, // ALU operation control signal
+    input        use_imm, // Select imm (1) or b (0)
+    output reg [31:0] val,// ALU result
+    output reg zero       // Zero flag
 );
-    reg [width-1:0] temp;
+    wire [31:0] opB = use_imm ? imm : b; // Select between imm and b
 
-    assign zero = (val == 32'b0);
+    always @(*) begin
+    case (control)
+        5'd0:  val = a + opB;                     // ADD / ADDI
+        5'd1:  val = a - opB;
+        5'd2:  val = a << opB[4:0];               // SLL / SLLI
+        5'd3:  val = ($signed(a) < $signed(opB)) ? 1 : 0; // SLT / SLTI
+        5'd4:  val = (a < opB) ? 1 : 0;           // SLTU / SLTIU
+        5'd5:  val = a ^ opB;                     // XOR / XORI
+        5'd6:  val = a >> opB[4:0];               // SRL / SRLI
+        5'd7:  val = $signed(a) >>> opB[4:0];     // SRA / SRAI
+        5'd8:  val = a | opB;                     // OR / ORI
+        5'd9:  val = a & opB;                     // AND / ANDI
+        default: val = 32'b0;                     // Default case (NOP)
+    endcase
 
-    always(*) begin
-      case (control)
-        0: val = a+b;
-
-        2: val = a<<b;
-        3: val = (a<b) ? 1 : 0;
-        4: val = (unsigned(a)<unsigned(b)) ? 1 : 0;
-        5: val = a^b;
-        6: val = a>>b;
-        7: val = a>>>b;
-        8: val = a|b;
-        9: val = a&b;
-        10: val = a+imm;
-        11: val = (a<imm) ? 1 : 0;
-        12: val = (unsigned(a)<unsigned(imm)) ? 1 : 0;
-        13: val = a^imm;
-        14: val = a|imm;
-        15: val = a&imm;
-        16: val = a<<imm;
-        17: val = a>>imm;
-        18: val = a>>>imm;
-    end
+    // Set zero flag
+    zero = (val == 32'b0) ? 1'b1 : 1'b0;
+end
 
 endmodule
 
@@ -244,10 +336,10 @@ module dataMem (
     input wire [31:0] data,
     output wire [31:0] rd
 );
-    parameter width = `WIDTH;
-    parameter cache_size = `CACHE_SIZE;
-    reg [width-1:0] cache[0:cache_size-1];
-    
+    parameter int WIDTH = `WIDTH;
+    parameter int CACHE_SIZE = `CACHE_SIZE;
+    reg [WIDTH-1:0] cache[CACHE_SIZE];
+
     always @(posedge clk or posedge rst) begin
         if (reset) begin
             rd <= 32'b0;
@@ -256,7 +348,7 @@ module dataMem (
         end else if (mem_read) begin
             rd <= cache[addr[11:2]];
         end
-    end 
+    end
 
 endmodule
 
