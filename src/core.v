@@ -11,20 +11,21 @@ module processor;
     reg mux_result;
     reg m2_Res;
     reg ins_result;
-    wire [31:0] pc_in, pc_out, pc_brn, imm_out, rs1_data, rs2_data, rd_data;
+    wire [31:0] pc_temp, pc_in, pc_out, pc_brn, imm_out, rs1_data, rs2_data, rd_data;
     wire [7:0] opcode;
     wire[4:0] rs1, rs2, rd, control;
 
     // Fetch
-    assign pc_in = (brn_en) ? pc_brn : (pc_in + 4);
+    assign pc_temp = (brn_en) ? pc_brn : (pc_in + 4);
     program_counter p1 (
         .clk(clk),
         .rst(rst),
-        .pc_in(pc_in),
+        .pc_in(pc_temp),
         .pc_out(pc_out)
     );
 
     assign pc_in = pc_out;
+
 
     // Instruction Memory
     insMem ins (
@@ -73,10 +74,10 @@ module processor;
     );
 
     // Memory Write/Data Memory
-
+/*
     dataMem d (
 
-    );
+    );*/
     // Writeback
 endmodule
 
@@ -88,7 +89,7 @@ module program_counter (
     output reg [31:0] pc_out
 );
 
-    always @(posedge clk or posedge reset) begin
+    always @(posedge clk or posedge rst) begin
         if (rst) begin
             pc_out <= 32'b0;
         end else begin
@@ -135,7 +136,7 @@ module op_parser (
 
 endmodule
 
-module immediate_parser (
+module imm_parser (
     input [31:0] ins,
     output [31:0] imm_out
 );
@@ -326,7 +327,7 @@ end
 
 endmodule
 
-
+/*
 module dataMem (
     input wire clk,
     input wire rst,
@@ -351,4 +352,4 @@ module dataMem (
     end
 
 endmodule
-
+*/

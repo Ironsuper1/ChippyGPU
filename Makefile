@@ -1,20 +1,32 @@
 # Makefile
+# Define variables
+TOP_MODULE = processor
+VERILOG_SRC = src/core.v
+OUTPUT_JSON = core.json
+OUTPUT_SYNTH = synth/core_synth.v
+OUTPUT_DOT = core.dot
+OUTPUT_PNG = core.png
 
-# defaults
-SIM ?= verilator
-TOPLEVEL_LANG ?= verilog
+# Yosys command
+YOSYS_CMD = yosys -p "read_verilog -sv $(VERILOG_SRC); synth -top $(TOP_MODULE); write_json $(OUTPUT_JSON); write_verilog -noattr $(OUTPUT_SYNTH)"
 
-VERILOG_SOURCES += $(PWD)/src/processor.v $(PWD)/src/mux.v
+YOSYS_NO_OP_CMD = yosys -p "read_verilog -sv $(VERILOG_SRC); hierarchy -top $(TOP_MODULE); proc; flatten; write_json $(OUTPUT_JSON); write_verilog -noattr $(OUTPUT_SYNTH)"
 
-# TOPLEVEL is the name of the toplevel module in your Verilog or VHDL file
-TOPLEVEL = src/processor
+YOSYS_SHOW_CMD = yosys -p "read_json $(OUTPUT_JSON); show -format png -prefix my_design -colors 42 -enum"
 
-# MODULE is the basename of the Python test file
-MODULE = test
+# Default target
+all: synthesize viz
 
-# include cocotb's make rules to take care of the simulator setup
-include $(shell cocotb-config --makefiles)/Makefile.sim
+synth_no_op:
+	$(YOSYS_NO_OP_CMD)
+# Synthesize target
+synthesize:
+	$(YOSYS_CMD)
 
-clear:
-	@$(MAKE) clean
-	rm -rf __pycache__ results.xml
+viz: $(OUTPUT_JSON)
+	$(YOSYS_SHOW_CMD)	
+
+# Clean target
+clean:
+	rm -f $(OUTPUT_JSON) $(OUTPUT_SYNTH) $(OUTPUT_DOT) $(OUTPUT_PNG)
+	
